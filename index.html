@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LinDough 手作私厨</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    :root {
+      --primary: #c86b29;
+      --bg: #faf7f2;
+      --card-bg: #ffffff;
+      --text: #333333;
+      --text-light: #777777;
+      --border: #eeeeee;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      margin: 0;
+      padding: 0;
+      display: flex;
+      justify-content: center;
+    }
+    .container {
+      width: 100%;
+      max-width: 600px;
+      padding: 20px;
+      box-sizing: border-box;
+    }
+    header {
+      text-align: center;
+      margin-bottom: 24px;
+      user-select: none;
+    }
+    h1 {
+      color: var(--primary);
+      margin: 0 0 8px 0;
+      font-size: 28px;
+      cursor: pointer;
+    }
+    .subtitle {
+      color: var(--text-light);
+      font-size: 14px;
+    }
+    .card {
+      background: var(--card-bg);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 16px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+    }
+    .menu-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .menu-item:last-child {
+      border-bottom: none;
+    }
+    .item-info h3 {
+      margin: 0 0 4px 0;
+      font-size: 16px;
+    }
+    .item-info p {
+      margin: 0;
+      color: var(--text-light);
+      font-size: 13px;
+    }
+    .item-price {
+      font-weight: bold;
+      color: var(--primary);
+      margin-top: 4px;
+    }
+    .btn {
+      background: var(--primary);
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    .btn-secondary {
+      background: #e0e0e0;
+      color: #333;
+    }
+    .btn-danger {
+      background: #e53935;
+      color: white;
+    }
+    .form-group {
+      margin-bottom: 12px;
+    }
+    .form-group label {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 14px;
+    }
+    .form-group input, .form-group textarea, .form-group select {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      box-sizing: border-box;
+    }
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.5);
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+    }
+    .modal-content {
+      background: white;
+      padding: 20px;
+      border-radius: 12px;
+      width: 90%;
+      max-width: 500px;
+      max-height: 80vh;
+      overflow-y: auto;
+    }
+    .admin-panel {
+      border: 2px dashed var(--primary);
+      background: #fff9f5;
+    }
+    .order-status {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: bold;
+    }
+    .status-pending { background: #ffe0b2; color: #e65100; }
+    .status-done { background: #c8e6c9; color: #2e7d32; }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <!-- 标题（连续点击 5 次打开管理面板） -->
+  <header>
+    <h1 id="site-title" onclick="handleTitleClick()">LinDough 手作私厨</h1>
+    <div class="subtitle">新鲜手作 · 独家美味 · 限额预订</div>
+  </header>
+
+  <!-- 云端状态指示 -->
+  <div id="cloud-status" style="font-size: 12px; text-align: right; color: #888; margin-bottom: 8px;">
+    ☁️ 云端同步：未连接
+  </div>
+
+  <!-- 顾客可看菜单 -->
+  <div class="card">
+    <h2>本周菜单</h2>
+    <div id="menu-list">暂无上架菜单，请稍候...</div>
+  </div>
+
+  <!-- 在线下单表单 -->
+  <div class="card">
+    <h2>在线预订</h2>
+    <form id="order-form" onsubmit="submitOrder(event)">
+      <div class="form-group">
+        <label>您的姓名 / 微信名</label>
+        <input type="text" id="cust-name" required placeholder="请填写联系人">
+      </div>
+      <div class="form-group">
+        <label>联系电话</label>
+        <input type="tel" id="cust-phone" required placeholder="用于接收取餐通知">
+      </div>
+      <div class="form-group">
+        <label>预订品类与数量</label>
+        <textarea id="cust-order" rows="3" required placeholder="例：巴斯克蛋糕 1个，江西辣排骨 1份"></textarea>
+      </div>
+      <div class="form-group">
+        <label>取餐方式</label>
+        <select id="cust-type">
+          <option value="自提">自提</option>
+          <option value="送货上门">送货上门</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>备注需求（如辣度/甜度调节等）</label>
+        <input type="text" id="cust-note" placeholder="选填">
+      </div>
+      <button type="submit" class="btn" style="width: 100%;">提交订单</button>
+    </form>
+  </div>
+
+  <!-- 匿名口味反馈 -->
+  <div class="card">
+    <h2>匿名口味反馈</h2>
+    <p style="font-size: 12px; color: #666;">您的反馈将完全匿名提交，帮助我们持续改善品质与调味。</p>
+    <form id="feedback-form" onsubmit="submitFeedback(event)">
+      <div class="form-group">
+        <textarea id="fb-text" rows="2" required placeholder="对品尝到的美食有什么宝贵建议？"></textarea>
+      </div>
+      <button type="submit" class="btn btn-secondary" style="width: 100%;">提交匿名反馈</button>
+    </form>
+  </div>
+</div>
+
+<!-- 店主管理弹窗 (Admin Panel) -->
+<div id="admin-modal" class="modal">
+  <div class="modal-content admin-panel">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+      <h2 style="margin:0;">店主后台管理</h2>
+      <button class="btn btn-secondary" onclick="closeAdmin()">关闭</button>
+    </div>
+
+    <!-- Supabase 配置区块 -->
+    <div style="background: #fff; padding: 10px; border-radius: 8px; margin-bottom: 12px; font-size: 12px;">
+      <strong>Supabase 云端配置：</strong>
+      <input type="text" id="cfg-url" placeholder="Project URL (https://xxx.supabase.co)" style="margin-top:4px;">
+      <input type="password" id="cfg-key" placeholder="Anon Key" style="margin-top:4px;">
+      <button class="btn" style="margin-top:6px; padding: 4px 8px; font-size:12px;" onclick="saveConfig()">保存并连接 Supabase</button>
+    </div>
+
+    <hr style="border: none; border-top: 1px dashed #ccc; margin: 12px 0;">
+
+    <!-- 菜单管理区 -->
+    <h3>菜单管理</h3>
+    <div style="background: #fff; padding: 10px; border-radius: 6px; margin-bottom: 12px; font-size: 13px; border: 1px solid #eee;">
+      <div class="form-group" style="margin-bottom:6px;"><input type="text" id="new-menu-name" placeholder="菜品名称"></div>
+      <div class="form-group" style="margin-bottom:6px;"><input type="text" id="new-menu-desc" placeholder="菜品描述（如：浓郁奶香）"></div>
+      <div class="form-group" style="margin-bottom:6px;"><input type="number" id="new-menu-price" placeholder="价格 (数字)"></div>
+      <button class="btn" style="padding: 4px 10px; font-size: 12px;" onclick="addMenuItem()">添加新菜品</button>
+    </div>
+    <div id="admin-menu-list">暂无菜单项</div>
+
+    <hr style="border: none; border-top: 1px dashed #ccc; margin: 12px 0;">
+
+    <!-- 订单管理区 -->
+    <h3>订单列表</h3>
+    <div id="admin-orders-list">暂无订单</div>
+
+    <hr style="border: none; border-top: 1px dashed #ccc; margin: 12px 0;">
+
+    <!-- 反馈列表区 -->
+    <h3>顾客匿名反馈</h3>
+    <div id="admin-feedback-list">暂无反馈</div>
+  </div>
+</div>
+
+<script>
+  // 基础数据状态（初始化菜单为空数组）
+  let clickCount = 0;
+  let clickTimer = null;
+  let supabaseClient = null;
+
+  let storeState = {
+    menu: [],
+    orders: [],
+    feedbacks: []
+  };
+
+  // 初始化加载
+  window.onload = function() {
+    initSupabase();
+    renderMenu();
+  };
+
+  // 初始化 Supabase
+  function initSupabase() {
+    const url = localStorage.getItem('ld_sp_url');
+    const key = localStorage.getItem('ld_sp_key');
+    if (url && key) {
+      document.getElementById('cfg-url').value = url;
+      document.getElementById('cfg-key').value = key;
+      try {
+        supabaseClient = window.supabase.createClient(url, key);
+        document.getElementById('cloud-status').innerText = '☁️ 云端同步：已连接';
+        loadCloudData();
+      } catch (e) {
+        document.getElementById('cloud-status').innerText = '☁️ 云端连接失败';
+      }
+    }
+  }
+
+  // 保存 Supabase 配置
+  function saveConfig() {
+    const url = document.getElementById('cfg-url').value.trim();
+    const key = document.getElementById('cfg-key').value.trim();
+    localStorage.setItem('ld_sp_url', url);
+    localStorage.setItem('ld_sp_key', key);
+    alert('配置已保存！页面即刻刷新连接。');
+    location.reload();
+  }
+
+  // 从 Supabase 载入数据
+  async function loadCloudData() {
+    if (!supabaseClient) return;
+    try {
+      let { data, error } = await supabaseClient.from('store_state').select('payload').eq('id', 1).single();
+      if (data && data.payload) {
+        storeState = data.payload;
+        renderMenu();
+        if (document.getElementById('admin-modal').style.display === 'flex') {
+          renderAdminData();
+        }
+      }
+    } catch (e) {
+      console.log('读取云端数据提示:', e);
+    }
+  }
+
+  // 保存数据到 Supabase
+  async function syncToCloud() {
+    if (!supabaseClient) {
+      alert('提示：当前未连接 Supabase，数据仅保存在本地浏览器缓存中。建议在后台配置云端连接以实现多端同步。');
+    }
+    try {
+      if (supabaseClient) {
+        await supabaseClient.from('store_state').upsert({ id: 1, payload: storeState });
+      }
+    } catch (e) {
+      console.log('同步到云端失败:', e);
+    }
+  }
+
+  // 点击标题 5 次触发后台
+  function handleTitleClick() {
+    clickCount++;
+    clearTimeout(clickTimer);
+    clickTimer = setTimeout(() => { clickCount = 0; }, 2000);
+    if (clickCount >= 5) {
+      clickCount = 0;
+      const pwd = prompt("请输入店主管理密码：");
+      if (pwd === "lindough888") {
+        document.getElementById('admin-modal').style.display = 'flex';
+        renderAdminData();
+      } else if (pwd !== null) {
+        alert("密码错误");
+      }
+    }
+  }
+
+  function closeAdmin() {
+    document.getElementById('admin-modal').style.display = 'none';
+  }
+
+  // 渲染前端菜单
+  function renderMenu() {
+    const list = document.getElementById('menu-list');
+    if (!storeState.menu || storeState.menu.length === 0) {
+      list.innerHTML = '<p style="color:#888; text-align:center; margin:10px 0;">本周暂无上架菜单，敬请期待...</p>';
+      return;
+    }
+    list.innerHTML = storeState.menu.map(item => `
+      <div class="menu-item">
+        <div class="item-info">
+          <h3>${item.name}</h3>
+          <p>${item.desc}</p>
+          <div class="item-price">¥${item.price}</div>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  // 后台添加菜品
+  async function addMenuItem() {
+    const name = document.getElementById('new-menu-name').value.trim();
+    const desc = document.getElementById('new-menu-desc').value.trim();
+    const price = parseFloat(document.getElementById('new-menu-price').value);
+    if (!name || isNaN(price)) {
+      alert('请填写完整的菜品名称和有效价格');
+      return;
+    }
+    const newItem = { id: Date.now(), name, desc, price };
+    storeState.menu.push(newItem);
+    await syncToCloud();
+    renderMenu();
+    renderAdminData();
+    document.getElementById('new-menu-name').value = '';
+    document.getElementById('new-menu-desc').value = '';
+    document.getElementById('new-menu-price').value = '';
+  }
+
+  // 后台删除菜品
+  async function deleteMenuItem(id) {
+    storeState.menu = storeState.menu.filter(item => item.id !== id);
+    await syncToCloud();
+    renderMenu();
+    renderAdminData();
+  }
+
+  // 提交订单
+  async function submitOrder(e) {
+    e.preventDefault();
+    const newOrder = {
+      id: Date.now(),
+      name: document.getElementById('cust-name').value,
+      phone: document.getElementById('cust-phone').value,
+      order: document.getElementById('cust-order').value,
+      type: document.getElementById('cust-type').value,
+      note: document.getElementById('cust-note').value,
+      status: '待处理',
+      time: new Date().toLocaleString()
+    };
+    storeState.orders.unshift(newOrder);
+    await syncToCloud();
+    alert('预订成功！我们会尽快与您联系确认。');
+    document.getElementById('order-form').reset();
+  }
+
+  // 提交匿名反馈
+  async function submitFeedback(e) {
+    e.preventDefault();
+    const fb = {
+      id: Date.now(),
+      text: document.getElementById('fb-text').value,
+      time: new Date().toLocaleString()
+    };
+    storeState.feedbacks.unshift(fb);
+    await syncToCloud();
+    alert('匿名反馈提交成功，非常感谢您的建议！');
+    document.getElementById('feedback-form').reset();
+  }
+
+  // 渲染后台菜单、订单和反馈
+  function renderAdminData() {
+    const adminMenuList = document.getElementById('admin-menu-list');
+    if (!storeState.menu || storeState.menu.length === 0) {
+      adminMenuList.innerHTML = '<p style="color:#888; font-size:12px;">暂无菜品，请在上方添加</p>';
+    } else {
+      adminMenuList.innerHTML = storeState.menu.map(m => `
+        <div style="background:#fff; padding:8px; border-radius:6px; margin-bottom:6px; font-size:12px; border:1px solid #eee; display:flex; justify-content:space-between; align-items:center;">
+          <div><strong>${m.name}</strong> - ¥${m.price}<br><span style="color:#777;">${m.desc || ''}</span></div>
+          <button class="btn btn-danger" style="padding:2px 6px; font-size:11px;" onclick="deleteMenuItem(${m.id})">删除</button>
+        </div>
+      `).join('');
+    }
+
+    const ordersList = document.getElementById('admin-orders-list');
+    if (!storeState.orders || storeState.orders.length === 0) {
+      ordersList.innerHTML = '<p style="color:#888; font-size:12px;">暂无预订订单</p>';
+    } else {
+      ordersList.innerHTML = storeState.orders.map(o => `
+        <div style="background:#fff; padding:10px; border-radius:6px; margin-bottom:8px; font-size:13px; border:1px solid #eee;">
+          <div style="display:flex; justify-content:space-between;">
+            <strong>${o.name} (${o.phone})</strong>
+            <span class="order-status ${o.status==='已处理'?'status-done':'status-pending'}">${o.status}</span>
+          </div>
+          <div style="margin:4px 0; color:#444;">${o.order}</div>
+          <div style="font-size:11px; color:#888;">方式：${o.type} | 备注：${o.note || '无'} | 时间：${o.time}</div>
+          <div style="margin-top:6px;">
+            <button class="btn" style="padding:2px 6px; font-size:11px;" onclick="toggleOrderStatus(${o.id})">标记为${o.status==='待处理'?'已处理':'待处理'}</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    const fbList = document.getElementById('admin-feedback-list');
+    if (!storeState.feedbacks || storeState.feedbacks.length === 0) {
+      fbList.innerHTML = '<p style="color:#888; font-size:12px;">暂无反馈建议</p>';
+    } else {
+      fbList.innerHTML = storeState.feedbacks.map(f => `
+        <div style="background:#fff; padding:8px; border-radius:6px; margin-bottom:6px; font-size:12px; border:1px solid #eee;">
+          <div>${f.text}</div>
+          <div style="font-size:10px; color:#aaa; margin-top:4px;">${f.time}</div>
+        </div>
+      `).join('');
+    }
+  }
+
+  // 更改订单状态
+  async function toggleOrderStatus(id) {
+    const order = storeState.orders.find(o => o.id === id);
+    if (order) {
+      order.status = order.status === '待处理' ? '已处理' : '待处理';
+      await syncToCloud();
+      renderAdminData();
+    }
+  }
+</script>
+</body>
+</html>
